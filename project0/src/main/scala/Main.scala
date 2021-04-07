@@ -1,3 +1,4 @@
 object Main extends App {
-  println("Hello, World!")
+  var cli:Cli = new Cli()
+  cli.run()
 }
