@@ -3,5 +3,7 @@
 .bloop
 .metals
 .vscode
+.bsp
 project0/project
 project0/target
+*:Zone.Identifier
