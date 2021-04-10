@@ -5,26 +5,89 @@ import scala.util.Success
 import scala.util.Random
 
 class Cli {
-  val parse_RE: Regex = raw"(\w+)\s*(.*)".r
-  val pokedex_file_location: String = "pokedex.csv"
-  var pokedex: Vector[Pokemon] = null
   val rng: Random = new Random()
+  val parse_RE: Regex = raw"(\S+)\s*(.*)".r
+  var pokedex: Vector[Pokemon] = null
+  var player: Player = null
 
   /** The main function to run the CLI
     */
   def run(): Unit = {
-    val load_successful: Boolean = load_csv(pokedex_file_location)
-    var do_exit: Boolean = !load_successful
+    println("Welcome to the Pokémon catching simulator!")
+    val csv_load_successful: Boolean = load_csv(Cli.pokedex_file_location)
+    //TODO : database connection
+    val db_load_successful: Boolean = true
+    try {
+      print("Please enter your name: ")
+      var input: String = StdIn.readLine().trim()
+      //TODO: if your name is already in the database, confirm link to old account
+      //and also maybe list out all existing players
+      player = new Player(input, Cli.default_num_balls)
+      println(s"Welcome, ${player.name}!")
+
+      if (csv_load_successful && db_load_successful) {
+        main_loop()
+      }
+    } finally {
+      // TODO: close database connection
+    }
+  }
+
+  /** main gameplay loop
+    */
+  private def main_loop(): Unit = {
+    var do_exit: Boolean = false
 
     while (!do_exit) {
       println("You're standing in the Pokémon Safari Welcome Center.")
+      println("For a full list of commands, type `help`")
       println("What would you like to do?")
       print(">> ")
       var input = StdIn.readLine()
       parse(input) match {
+        case Some(("help", "")) => {
+          println()
+          println("`help`: Show this help prompt")
+          println("`safari`: Go on a safari where all Pokémon are available")
+          println(
+            "`safari [Type]`: Go on a safari where the only Pokémon you can catch are of that type. Type must be capitalized"
+          )
+          println(
+            "`pokémart`: get more Pokéballs (also aliased as `pokemart` and `mart`)"
+          )
+          println(
+            "`status`: show your trainer card (also aliased as `trainer card` and `trainer`)"
+          )
+          println(
+            "`pokédex`: explore info on your caught Pokémon (also aliased as `pokedex`)"
+          )
+          println("`exit`: exit the game")
+          println()
+        }
         case Some(("safari", "")) => println(); run_safari("General")
-        // case Some(("catch", "")) => println(get_random_pokemon())
-        // case Some(("catch", a)) => println(get_random_pokemon(_.type_1.getOrElse("") == a))
+        case Some(("safari", pkmn_type)) => {
+          if (Cli.pokemon_types.contains(pkmn_type)) {
+            println()
+            run_safari(
+              pkmn_type,
+              pkmn =>
+                (pkmn.type_1.getOrElse("") == pkmn_type) || (pkmn.type_2
+                  .getOrElse("") == pkmn_type)
+            )
+          } else {
+            println(s"type $pkmn_type not recognized")
+          }
+        }
+        case Some(("pokemart", "")) | Some(("pokémart", "")) | Some(
+              ("mart", "")
+            ) =>
+          println(); pokemart()
+        case Some(("status", "")) | Some(("trainer", "")) | Some(
+              ("trainer", "card")
+            ) =>
+          println(); trainer_card()
+        case Some(("pokedex", "")) | Some(("pokédex", "")) =>
+          println("NOT YET IMPLEMENTED")
         case Some(("exit", _)) => {
           println("Goodbye!")
           do_exit = true
@@ -36,18 +99,27 @@ class Cli {
     }
   }
 
+  /** safari loop
+    *
+    * @param safari_name
+    * @param predicate
+    */
   private def run_safari(
       safari_name: String,
       predicate: Pokemon => Boolean = _ => true
   ): Unit = {
     var do_exit: Boolean = false
     println(s"Welcome to the $safari_name Pokémon Safari!")
+    println(
+      "At any time during the safari, type `help` for a full list of commands."
+    )
     var pkmn: Pokemon = null
     get_random_pokemon(predicate) match {
       case Some(pokemon) => {
         pkmn = pokemon
       }
       case None => {
+        // No Pokémon exist under this filter
         println(
           "Hmm... you can't seem to find any Pokémon in this safari. Returning..."
         )
@@ -55,42 +127,112 @@ class Cli {
       }
     }
     while (!do_exit) {
-      println(s"You spot a ${pkmn.name}! What would [you] like to do?")
-      println(s"You have [infinite] Pokéballs left.")
+      if (player.num_balls <= 0) {
+        println(
+          "You have no more Pokéballs left! Let's head back to the welcome center."
+        )
+        do_exit = true
+      } else {
+        // make the grammar a bit more natural
+        // might be slightly off if there are silent consonants or an initial U sounding as "Yoo"
+        // But I don't think that applies to any Pokémon that currently exists
+        val a_or_an_pokemon: String =
+          if (Cli.vowels.contains(pkmn.name(0))) "an" else "a"
+        val pokeball_or_pokeballs: String =
+          if (player.num_balls == 1) "Pokéball" else "Pokéballs"
 
-      print(">> ")
-      var input = StdIn.readLine()
-      parse(input) match {
-        case Some(("catch", _)) => {
-          println(s"You caught a ${pkmn.name}!")
-          //because we've already run it once, we can be confident get_random_pokemon isn't None
-          pkmn = get_random_pokemon(
-            predicate
-          ).get
+        println(
+          s"You spot ${a_or_an_pokemon} ${pkmn.name}! What would you like to do?"
+        )
+        println(s"You have ${player.num_balls} $pokeball_or_pokeballs left.")
+
+        print(">> ")
+        var input = StdIn.readLine()
+        parse(input) match {
+          case Some(("help", "")) => {
+            println()
+            println(
+              "`catch`: use a Pokéball to catch the Pokémon (also aliased as `ball`)"
+            )
+            println(
+              "`flee`: flee from this Pokémon and search for another Pokémon (also aliased as `ignore` and `pass`)"
+            )
+            println("`leave`: leave this Safari Zone (also aliased as `exit`)")
+            println()
+          }
+          case Some(("catch", _)) | Some(("ball", _)) => {
+            println(s"You caught ${a_or_an_pokemon} ${pkmn.name}!")
+            player.num_balls -= 1
+            // TODO: add this Pokémon to the database
+            //because we've already run it once, we can be confident get_random_pokemon isn't None
+            pkmn = get_random_pokemon(
+              predicate
+            ).get
+          }
+          case Some(("flee", _)) | Some(("ignore", _)) | Some(("pass", _)) => {
+            println(s"You ignore the ${pkmn.name} and continue searching")
+            //because we've already run it once, we can be confident get_random_pokemon isn't None
+            pkmn = get_random_pokemon(
+              predicate
+            ).get
+          }
+          case Some(("leave", _)) | Some(("exit", _)) => {
+            println(
+              s"You decide you've explored enough in the $safari_name Pokémon Safari. You head back to the Welcome Center."
+            )
+            do_exit = true
+          }
+          case Some((_, _)) | None =>
+            println("command not understood")
         }
-        case Some(("flee", _)) => {
-          println(s"You ignore the ${pkmn.name} and continue searching")
-          //because we've already run it once, we can be confident get_random_pokemon isn't None
-          pkmn = get_random_pokemon(
-            predicate
-          ).get
-        }
-        case Some(("leave", _)) => {
-          println(
-            s"You decide you've explored enough in the $safari_name Pokémon Safari. You head back to the Welcome Center."
-          )
-          do_exit = true
-        }
-        case Some((_, _)) | None =>
-          println("command not understood")
       }
       println()
     }
   }
 
-  /** load the Pokedex from a CSV file into memory
+  /** get extra Pokéballs, as necessary */
+  private def pokemart(): Unit = {
+    println("Welcome to the Safari Zone Pokémart! Do you need extra Pokéballs?")
+    if (player.num_balls <= 0) {
+      println("Oh, you're completely out! Here, let me get you some!")
+      println("(You received 10 Pokéballs!)")
+      player.num_balls = Cli.default_num_balls
+    } else if (player.num_balls < Cli.default_num_balls - 1) {
+      println(
+        "You're starting to get a little bit low. I'll get you a few more."
+      )
+      println(
+        s"(You received ${Cli.default_num_balls - player.num_balls} Pokéballs!)"
+      )
+      player.num_balls = Cli.default_num_balls
+    } else {
+      println("Hm... It looks like you still have plenty.")
+      println("Come back when you start to run low.")
+    }
+  }
+
+  /** show trainer card
+    */
+  private def trainer_card(): Unit = {
+    println()
+    println("============TRAINER CARD============")
+    println(s"TRAINER NAME: ${player.name}")
+    println(s"NUMBER OF POKÉBALLS: ${player.num_balls}")
+    println(s"NUMBER OF POKÉMON CAUGHT: (unknown)") //TODO!
+    println("====================================")
+  }
+
+  /** run pokedex loop
+    */
+  private def pokedex_loop(): Unit = {
+    println("NOT YET IMPLEMENTED")
+  }
+
+  /** load the Pokedex from a CSV file into memory, printing the status as you go
+    * returns a boolean of whether or not this was successful
     *
     * @param pokedex_file_location
+    * @return
     */
   private def load_csv(pokedex_file_location: String): Boolean = {
     println(s"Loading Pokédex from $pokedex_file_location...")
@@ -101,18 +243,10 @@ class Cli {
       }
       case Success(value) => {
         pokedex = value
-        println("Success!")
-        print_main_menu()
+        println("Load successful!")
         true
       }
     }
-  }
-
-  /** Print the main menu to the screen
-    */
-  private def print_main_menu(): Unit = {
-    println("Welcome to the Pokémon catching simulator!")
-    // println("Please enter your name:")
   }
 
   /** Return a random Pokemon from the pokedex, weighted by their catch rate
@@ -155,4 +289,30 @@ class Cli {
       case _                  => None
     }
   }
+}
+
+object Cli {
+  val default_num_balls = 10
+  val pokedex_file_location: String = "pokedex.csv"
+  val pokemon_types: Set[String] = Set(
+    "Normal",
+    "Fighting",
+    "Flying",
+    "Poison",
+    "Ground",
+    "Rock",
+    "Bug",
+    "Ghost",
+    "Steel",
+    "Fire",
+    "Water",
+    "Grass",
+    "Electric",
+    "Psychic",
+    "Ice",
+    "Dragon",
+    "Dark",
+    "Fairy"
+  )
+  val vowels: Set[Char] = Set('A', 'E', 'I', 'O', 'U')
 }
