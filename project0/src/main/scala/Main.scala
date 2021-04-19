@@ -1,8 +1,19 @@
 import scala.util.Failure
 import scala.util.Success
-object Main extends App {
-  var cli:Cli = new Cli()
-  cli.run()
+object Main {
+  def main(args: Array[String]): Unit = {
+    var dbc: DatabaseConnection = new DatabaseConnection(
+      "jdbc:postgresql://localhost:5432/pokemonsafari"
+    )
+    try {
+      dbc.connect()
+    } finally {
+      dbc.disconnect()
+    }
+  }
+
+  // var cli:Cli = new Cli()
+  // cli.run()
   // FileIO.read_pokedex("pokedex2.csv") match {
   //   case Failure(exception) => println(s"OH NO $exception")
   //   case Success(value) =>

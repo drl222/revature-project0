@@ -261,13 +261,13 @@ class Cli {
       predicate: Pokemon => Boolean = _ => true
   ): Option[Pokemon] = {
     val filtered_pokedex = pokedex.filter(predicate)
-    var cumulative_weights: Double = filtered_pokedex.foldLeft(0.0)({
-      _ + _.catch_rate.getOrElse(0.0)
+    var cumulative_weights: Int = filtered_pokedex.foldLeft(0)({
+      _ + _.catch_rate.getOrElse(0)
     })
 
     //This is O(n) - maybe inefficient because you can probably do some fancy binary search, but the .filter above is already O(n)
     for (pkmn <- filtered_pokedex) {
-      var this_catch_rate: Double = pkmn.catch_rate.getOrElse(0.0)
+      var this_catch_rate: Int = pkmn.catch_rate.getOrElse(0)
       var random_number: Double = rng.between(0.0, cumulative_weights)
       if (random_number < this_catch_rate) {
         return Some(pkmn)
