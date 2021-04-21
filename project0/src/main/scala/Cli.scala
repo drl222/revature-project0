@@ -4,7 +4,7 @@ import scala.util.Failure
 import scala.util.Success
 import scala.util.Random
 
-class Cli {
+class Cli(var dbc: DatabaseConnection) {
   val rng: Random = new Random()
   val parse_RE: Regex = raw"(\S+)\s*(.*)".r
   var pokedex: Vector[Pokemon] = null
@@ -14,22 +14,71 @@ class Cli {
     */
   def run(): Unit = {
     println("Welcome to the Pokémon catching simulator!")
-    val csv_load_successful: Boolean = load_csv(Cli.pokedex_file_location)
-    //TODO : database connection
-    val db_load_successful: Boolean = true
     try {
-      print("Please enter your name: ")
-      var input: String = StdIn.readLine().trim()
-      //TODO: if your name is already in the database, confirm link to old account
-      //and also maybe list out all existing players
-      player = new Player(input, Cli.default_num_balls)
-      println(s"Welcome, ${player.name}!")
+      dbc.connect()
+      var csv_load_successful = false
+      if (!dbc.check_if_pokemon_table_is_populated()) {
+        FileIO.read_pokedex(Cli.pokedex_file_location) match {
+          case Failure(exception) =>
+            println(s"Error loading Pokédex from CSV: $exception")
+          case Success(loaded_value) =>
+            pokedex = loaded_value
+            csv_load_successful = true
+        }
+        dbc.store_pokedex(pokedex)
+        println("Retrieved data from CSV!")
+      } else {
+        dbc.load_pokedex() match {
+          case Failure(exception) =>
+            println(s"Error loading Pokédex from SQL database: $exception")
+          case Success(loaded_value) =>
+            pokedex = loaded_value; csv_load_successful = true
+        }
+        println("Retrieved data from Postgres Database!")
+      }
 
-      if (csv_load_successful && db_load_successful) {
-        main_loop()
+      if (csv_load_successful) {
+        println()
+        print("Please enter your name: ")
+        var input: String = StdIn.readLine().trim()
+        //TODO: if your name is already in the database, confirm link to old account
+        //and also maybe list out all existing players
+
+        dbc.get_player(input) match {
+          case Failure(exception) =>
+            println(s"Exception occurred! $exception")
+          case Success(Some(value)) =>
+            player = value
+            println()
+            println(s"Welcome back, $input!")
+            println(s"Here's your current status:")
+            println()
+            trainer_card()
+            println()
+            main_loop()
+          case Success(None) =>
+            player = new Player(input, Cli.default_num_balls)
+            dbc.add_player(player)
+            println()
+            println(s"Welcome to the Pokémon Safari, $input!")
+            println(s"Here you can go around and catch any Pokémon you see!")
+            println(
+              s"Let me get you ${Cli.default_num_balls} Pokéballs to start."
+            )
+            println(
+              s"If you need any more at any point, check out the Pokémart."
+            )
+            println(s"Also, I've printed out a Trainer Card for you.")
+            println(s"It'll automatically keep track of your progress.")
+            println(s"Have a good time!")
+            println()
+            trainer_card()
+            println()
+            main_loop()
+        }
       }
     } finally {
-      // TODO: close database connection
+      dbc.disconnect()
     }
   }
 
@@ -50,7 +99,7 @@ class Cli {
           println("`help`: Show this help prompt")
           println("`safari`: Go on a safari where all Pokémon are available")
           println(
-            "`safari [Type]`: Go on a safari where the only Pokémon you can catch are of that type. Type must be capitalized"
+            "`safari [Type]`: Go on a safari where the only Pokémon you can catch are of that type. The type name must be capitalized"
           )
           println(
             "`pokémart`: get more Pokéballs (also aliased as `pokemart` and `mart`)"
@@ -59,15 +108,14 @@ class Cli {
             "`status`: show your trainer card (also aliased as `trainer card` and `trainer`)"
           )
           println(
-            "`pokédex`: explore info on your caught Pokémon (also aliased as `pokedex`)"
+            "`pokédex`: explore info on your caught Pokémon (also aliased as `pokedex`, `pokémon`, and `pokemon`)"
           )
           println("`exit`: exit the game")
-          println()
         }
-        case Some(("safari", "")) => println(); run_safari("General")
+        case Some(("safari", "")) => println("\n"); run_safari("General")
         case Some(("safari", pkmn_type)) => {
           if (Cli.pokemon_types.contains(pkmn_type)) {
-            println()
+            println("\n")
             run_safari(
               pkmn_type,
               pkmn =>
@@ -86,8 +134,10 @@ class Cli {
               ("trainer", "card")
             ) =>
           println(); trainer_card()
-        case Some(("pokedex", "")) | Some(("pokédex", "")) =>
-          println("NOT YET IMPLEMENTED")
+        case Some(("pokedex", "")) | Some(("pokédex", "")) | Some(
+              ("pokémon", "")
+            ) | Some(("pokemon", "")) =>
+          println(); start_pokedex()
         case Some(("exit", _)) => {
           println("Goodbye!")
           do_exit = true
@@ -211,10 +261,13 @@ class Cli {
     }
   }
 
+  private def start_pokedex(): Unit = {
+    println("NOT YET IMPLEMENTED") 
+  }
+
   /** show trainer card
     */
   private def trainer_card(): Unit = {
-    println()
     println("============TRAINER CARD============")
     println(s"TRAINER NAME: ${player.name}")
     println(s"NUMBER OF POKÉBALLS: ${player.num_balls}")
@@ -228,26 +281,26 @@ class Cli {
     println("NOT YET IMPLEMENTED")
   }
 
-  /** load the Pokedex from a CSV file into memory, printing the status as you go
-    * returns a boolean of whether or not this was successful
-    *
-    * @param pokedex_file_location
-    * @return
-    */
-  private def load_csv(pokedex_file_location: String): Boolean = {
-    println(s"Loading Pokédex from $pokedex_file_location...")
-    FileIO.read_pokedex(pokedex_file_location) match {
-      case Failure(exception) => {
-        println("Error reading file. Exiting...")
-        false
-      }
-      case Success(value) => {
-        pokedex = value
-        println("Load successful!")
-        true
-      }
-    }
-  }
+  // /** load the Pokedex from a CSV file into memory, printing the status as you go
+  //   * returns a boolean of whether or not this was successful
+  //   *
+  //   * @param pokedex_file_location
+  //   * @return
+  //   */
+  // private def load_csv(pokedex_file_location: String): Boolean = {
+  //   println(s"Loading Pokédex from $pokedex_file_location...")
+  //   FileIO.read_pokedex(pokedex_file_location) match {
+  //     case Failure(exception) => {
+  //       println("Error reading file. Exiting...")
+  //       false
+  //     }
+  //     case Success(value) => {
+  //       pokedex = value
+  //       println("Load successful!")
+  //       true
+  //     }
+  //   }
+  // }
 
   /** Return a random Pokemon from the pokedex, weighted by their catch rate
     * If the parameter predicate is passed, only Pokemon that satisfy the predicate are possible

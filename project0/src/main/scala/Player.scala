@@ -1,9 +1,9 @@
 import java.sql.ResultSet
 
 class Player(var name: String, var num_balls: Int) {
-    override def toString(): String = {
-        s"<Player $name ($num_balls Pokéballs)>"
-    }
+  override def toString(): String = {
+    s"<Player $name ($num_balls Pokéballs)>"
+  }
 }
 
 object Player {
