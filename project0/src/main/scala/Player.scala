@@ -11,6 +11,8 @@ object Player {
   val NAME = "player_name"
   val NUM_BALLS = "num_balls"
 
+  val num_balls_default = 10
+
   def apply(rs: ResultSet): Player = {
     new Player(rs.getString(NAME), rs.getInt(NUM_BALLS))
   }

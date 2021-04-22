@@ -198,9 +198,65 @@ class DatabaseConnection(val connection_URL: String) {
       val rs = stmt.executeUpdate()
       true
     } catch {
-      case e:SQLException =>
+      case e: SQLException =>
         println(s"Exception occurred! $e")
         false
+    }
+  }
+
+  def update_player_num_balls(player: Player): Boolean = {
+    if (!is_connected) throw new SQLException("Connection not open")
+    val stmt = conn.prepareStatement(
+      s"UPDATE ${DatabaseConnection.TABLE_PLAYER} SET ${Player.NUM_BALLS} = ? WHERE ${Player.NAME} = ?;"
+    )
+    try {
+      stmt.setInt(1, player.num_balls)
+      stmt.setString(2, player.name)
+      val rs = stmt.executeUpdate()
+      true
+    } catch {
+      case e: SQLException =>
+        println(s"Exception occurred! $e")
+        false
+    }
+  }
+
+  def increment_ownership(player: Player, pkmn: Pokemon): Boolean = {
+    if (!is_connected) throw new SQLException("Connection not open")
+    val stmt = conn.prepareStatement(
+      s"INSERT INTO ${DatabaseConnection.TABLE_OWNERSHIP}(${DatabaseConnection.OWNERSHIP_PLAYER_ID}, ${DatabaseConnection.OWNERSHIP_POKEMON_ID}, ${DatabaseConnection.OWNERSHIP_NUMBER_OWNED})" +
+        s" VALUES(?, ?, ?) ON CONFLICT (${DatabaseConnection.OWNERSHIP_PLAYER_ID}, ${DatabaseConnection.OWNERSHIP_POKEMON_ID}) DO UPDATE SET" +
+        s" ${DatabaseConnection.OWNERSHIP_NUMBER_OWNED} = ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_NUMBER_OWNED} + 1;"
+    )
+    try {
+      stmt.setString(1, player.name)
+      stmt.setInt(2, pkmn.pokemon_id)
+      stmt.setInt(3, 1)
+      val rs = stmt.executeUpdate()
+      true
+    } catch {
+      case e: SQLException =>
+        println(s"Exception occurred! $e")
+        false
+    }
+  }
+
+  def check_ownership(player: Player, pkmn: Pokemon): Int = {
+    if (!is_connected) throw new SQLException("Connection not open")
+    val stmt = conn.prepareStatement(
+      s"SELECT ${DatabaseConnection.OWNERSHIP_NUMBER_OWNED} FROM ${DatabaseConnection.TABLE_OWNERSHIP} WHERE ${DatabaseConnection.OWNERSHIP_PLAYER_ID} = ? AND ${DatabaseConnection.OWNERSHIP_POKEMON_ID} = ?;"
+    )
+    try {
+      stmt.setString(1, player.name)
+      stmt.setInt(2, pkmn.pokemon_id)
+      val rs: ResultSet = stmt.executeQuery()
+      if(rs.next()){
+        rs.getInt(1)
+      } else {
+        0
+      }
+    } catch {
+      case e: SQLException => println(s"Exception occurred! $e"); 0
     }
   }
 

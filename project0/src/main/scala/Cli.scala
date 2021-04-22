@@ -57,13 +57,13 @@ class Cli(var dbc: DatabaseConnection) {
             println()
             main_loop()
           case Success(None) =>
-            player = new Player(input, Cli.default_num_balls)
+            player = new Player(input, Player.num_balls_default)
             dbc.add_player(player)
             println()
             println(s"Welcome to the Pokémon Safari, $input!")
             println(s"Here you can go around and catch any Pokémon you see!")
             println(
-              s"Let me get you ${Cli.default_num_balls} Pokéballs to start."
+              s"Let me get you ${Player.num_balls_default} Pokéballs to start."
             )
             println(
               s"If you need any more at any point, check out the Pokémart."
@@ -190,10 +190,12 @@ class Cli(var dbc: DatabaseConnection) {
           if (Cli.vowels.contains(pkmn.name(0))) "an" else "a"
         val pokeball_or_pokeballs: String =
           if (player.num_balls == 1) "Pokéball" else "Pokéballs"
+        val num_owned: Int = dbc.check_ownership(player, pkmn)
 
         println(
           s"You spot ${a_or_an_pokemon} ${pkmn.name}! What would you like to do?"
         )
+        if(num_owned > 0) println(s"You have already caught $num_owned ${pkmn.name} before.")
         println(s"You have ${player.num_balls} $pokeball_or_pokeballs left.")
 
         print(">> ")
@@ -213,7 +215,9 @@ class Cli(var dbc: DatabaseConnection) {
           case Some(("catch", _)) | Some(("ball", _)) => {
             println(s"You caught ${a_or_an_pokemon} ${pkmn.name}!")
             player.num_balls -= 1
-            // TODO: add this Pokémon to the database
+            dbc.update_player_num_balls(player)
+            dbc.increment_ownership(player, pkmn)
+            //generate a new Pokémon
             //because we've already run it once, we can be confident get_random_pokemon isn't None
             pkmn = get_random_pokemon(
               predicate
@@ -221,6 +225,7 @@ class Cli(var dbc: DatabaseConnection) {
           }
           case Some(("flee", _)) | Some(("ignore", _)) | Some(("pass", _)) => {
             println(s"You ignore the ${pkmn.name} and continue searching")
+            //generate a new Pokémon
             //because we've already run it once, we can be confident get_random_pokemon isn't None
             pkmn = get_random_pokemon(
               predicate
@@ -246,23 +251,24 @@ class Cli(var dbc: DatabaseConnection) {
     if (player.num_balls <= 0) {
       println("Oh, you're completely out! Here, let me get you some!")
       println("(You received 10 Pokéballs!)")
-      player.num_balls = Cli.default_num_balls
-    } else if (player.num_balls < Cli.default_num_balls - 1) {
+      player.num_balls = Player.num_balls_default
+    } else if (player.num_balls < Player.num_balls_default - 1) {
       println(
         "You're starting to get a little bit low. I'll get you a few more."
       )
       println(
-        s"(You received ${Cli.default_num_balls - player.num_balls} Pokéballs!)"
+        s"(You received ${Player.num_balls_default - player.num_balls} Pokéballs!)"
       )
-      player.num_balls = Cli.default_num_balls
+      player.num_balls = Player.num_balls_default
     } else {
       println("Hm... It looks like you still have plenty.")
       println("Come back when you start to run low.")
     }
+    dbc.update_player_num_balls(player)
   }
 
   private def start_pokedex(): Unit = {
-    println("NOT YET IMPLEMENTED") 
+    println("NOT YET IMPLEMENTED")
   }
 
   /** show trainer card
@@ -280,27 +286,6 @@ class Cli(var dbc: DatabaseConnection) {
   private def pokedex_loop(): Unit = {
     println("NOT YET IMPLEMENTED")
   }
-
-  // /** load the Pokedex from a CSV file into memory, printing the status as you go
-  //   * returns a boolean of whether or not this was successful
-  //   *
-  //   * @param pokedex_file_location
-  //   * @return
-  //   */
-  // private def load_csv(pokedex_file_location: String): Boolean = {
-  //   println(s"Loading Pokédex from $pokedex_file_location...")
-  //   FileIO.read_pokedex(pokedex_file_location) match {
-  //     case Failure(exception) => {
-  //       println("Error reading file. Exiting...")
-  //       false
-  //     }
-  //     case Success(value) => {
-  //       pokedex = value
-  //       println("Load successful!")
-  //       true
-  //     }
-  //   }
-  // }
 
   /** Return a random Pokemon from the pokedex, weighted by their catch rate
     * If the parameter predicate is passed, only Pokemon that satisfy the predicate are possible
@@ -345,7 +330,6 @@ class Cli(var dbc: DatabaseConnection) {
 }
 
 object Cli {
-  val default_num_balls = 10
   val pokedex_file_location: String = "pokedex.csv"
   val pokemon_types: Set[String] = Set(
     "Normal",
