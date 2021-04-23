@@ -250,13 +250,80 @@ class DatabaseConnection(val connection_URL: String) {
       stmt.setString(1, player.name)
       stmt.setInt(2, pkmn.pokemon_id)
       val rs: ResultSet = stmt.executeQuery()
-      if(rs.next()){
+      if (rs.next()) {
         rs.getInt(1)
       } else {
         0
       }
     } catch {
       case e: SQLException => println(s"Exception occurred! $e"); 0
+    }
+  }
+
+  def get_one_owned(player: Player, pkmn_name: String): Try[Option[(Pokemon, Int)]] = {
+    if (!is_connected) throw new SQLException("Connection not open")
+    val stmt = conn.prepareStatement(
+      s"SELECT ${DatabaseConnection.TABLE_POKEMON}.*, COALESCE(${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_NUMBER_OWNED}, 0) AS ${DatabaseConnection.OWNERSHIP_NUMBER_OWNED} " +
+        s"FROM ${DatabaseConnection.TABLE_OWNERSHIP} FULL OUTER JOIN ${DatabaseConnection.TABLE_POKEMON} " +
+        s"ON ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_POKEMON_ID} = ${DatabaseConnection.TABLE_POKEMON}.${Pokemon.POKEMON_ID} " +
+        s"WHERE (${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_PLAYER_ID} = ? OR ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_PLAYER_ID} IS NULL) " +
+        s"AND ${DatabaseConnection.TABLE_POKEMON}.${Pokemon.NAME} = ?;"
+    )
+
+    stmt.setString(1, player.name)
+    stmt.setString(2, pkmn_name)
+    Try {
+      val rs: ResultSet = stmt.executeQuery()
+      if (rs.next()) {
+        Some((Pokemon(rs), rs.getInt(DatabaseConnection.OWNERSHIP_NUMBER_OWNED)))
+      } else {
+        None
+      }
+    }
+  }
+
+  def get_ownership_info(player: Player, pkmn: Pokemon): Int = {
+    if (!is_connected) throw new SQLException("Connection not open")
+    val stmt = conn.prepareStatement(
+      s"SELECT ${DatabaseConnection.TABLE_POKEMON}.*, ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_NUMBER_OWNED} FROM ${DatabaseConnection.TABLE_OWNERSHIP} JOIN ${DatabaseConnection.TABLE_POKEMON} " +
+        s"ON ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_POKEMON_ID} = ${DatabaseConnection.TABLE_POKEMON}.${Pokemon.POKEMON_ID} " +
+        s"WHERE ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_PLAYER_ID} = ?;"
+    )
+    try {
+      stmt.setString(1, player.name)
+      stmt.setInt(2, pkmn.pokemon_id)
+      val rs: ResultSet = stmt.executeQuery()
+      if (rs.next()) {
+        rs.getInt(1)
+      } else {
+        0
+      }
+    } catch {
+      case e: SQLException => println(s"Exception occurred! $e"); 0
+    }
+  }
+
+  def get_all_owned(player: Player): Vector[(Pokemon, Int)] = {
+    if (!is_connected) throw new SQLException("Connection not open")
+    val stmt = conn.prepareStatement(
+      s"SELECT ${DatabaseConnection.TABLE_POKEMON}.*, ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_NUMBER_OWNED} FROM ${DatabaseConnection.TABLE_OWNERSHIP} JOIN ${DatabaseConnection.TABLE_POKEMON} " +
+        s"ON ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_POKEMON_ID} = ${DatabaseConnection.TABLE_POKEMON}.${Pokemon.POKEMON_ID} " +
+        s"WHERE ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_PLAYER_ID} = ? ORDER BY ${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_POKEMON_ID} DESC;"
+    )
+    try {
+      stmt.setString(1, player.name)
+      val rs: ResultSet = stmt.executeQuery()
+      var to_return = Vector[(Pokemon, Int)]()
+      while (rs.next()) {
+        to_return = (
+          Pokemon(rs),
+          rs.getInt(DatabaseConnection.OWNERSHIP_NUMBER_OWNED)
+        ) +: to_return
+      }
+      to_return
+    } catch {
+      case e: SQLException =>
+        println(s"Exception occurred! $e"); Vector[(Pokemon, Int)]()
     }
   }
 
@@ -267,7 +334,6 @@ class DatabaseConnection(val connection_URL: String) {
         println(s"Exception occurred while disconnecting: $e")
     }
   }
-
 }
 
 object DatabaseConnection {

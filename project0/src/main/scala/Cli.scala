@@ -108,9 +108,9 @@ class Cli(var dbc: DatabaseConnection) {
             "`status`: show your trainer card (also aliased as `trainer card` and `trainer`)"
           )
           println(
-            "`pokédex`: explore info on your caught Pokémon (also aliased as `pokedex`, `pokémon`, and `pokemon`)"
+            "`pokédex`: explore info on your caught Pokémon (also aliased as `pokedex`, `pokémon`, `pokemon`, and `dex`)"
           )
-          println("`exit`: exit the game")
+          println("`exit`: exit the game (also aliased as `leave` and `quit`)")
         }
         case Some(("safari", "")) => println("\n"); run_safari("General")
         case Some(("safari", pkmn_type)) => {
@@ -136,9 +136,9 @@ class Cli(var dbc: DatabaseConnection) {
           println(); trainer_card()
         case Some(("pokedex", "")) | Some(("pokédex", "")) | Some(
               ("pokémon", "")
-            ) | Some(("pokemon", "")) =>
-          println(); start_pokedex()
-        case Some(("exit", _)) => {
+            ) | Some(("pokemon", "")) | Some(("dex", "")) =>
+          println(); pokedex_loop()
+        case Some(("exit", "")) |  Some(("leave", "")) |  Some(("quit", "")) => {
           println("Goodbye!")
           do_exit = true
         }
@@ -195,10 +195,11 @@ class Cli(var dbc: DatabaseConnection) {
         println(
           s"You spot ${a_or_an_pokemon} ${pkmn.name}! What would you like to do?"
         )
-        if(num_owned > 0) println(s"You have already caught $num_owned ${pkmn.name} before.")
+        if (num_owned > 0)
+          println(s"You have already caught $num_owned ${pkmn.name} before.")
         println(s"You have ${player.num_balls} $pokeball_or_pokeballs left.")
 
-        print(">> ")
+        print("🌴 >> ")
         var input = StdIn.readLine()
         parse(input) match {
           case Some(("help", "")) => {
@@ -209,7 +210,7 @@ class Cli(var dbc: DatabaseConnection) {
             println(
               "`flee`: flee from this Pokémon and search for another Pokémon (also aliased as `ignore` and `pass`)"
             )
-            println("`leave`: leave this Safari Zone (also aliased as `exit`)")
+            println("`exit`: leave this Safari Zone (also aliased as `leave` and `quit`)")
             println()
           }
           case Some(("catch", _)) | Some(("ball", _)) => {
@@ -231,7 +232,7 @@ class Cli(var dbc: DatabaseConnection) {
               predicate
             ).get
           }
-          case Some(("leave", _)) | Some(("exit", _)) => {
+          case Some(("leave", _)) | Some(("exit", _))  | Some(("quit", _)) => {
             println(
               s"You decide you've explored enough in the $safari_name Pokémon Safari. You head back to the Welcome Center."
             )
@@ -267,24 +268,151 @@ class Cli(var dbc: DatabaseConnection) {
     dbc.update_player_num_balls(player)
   }
 
-  private def start_pokedex(): Unit = {
-    println("NOT YET IMPLEMENTED")
-  }
-
   /** show trainer card
     */
   private def trainer_card(): Unit = {
     println("============TRAINER CARD============")
     println(s"TRAINER NAME: ${player.name}")
     println(s"NUMBER OF POKÉBALLS: ${player.num_balls}")
-    println(s"NUMBER OF POKÉMON CAUGHT: (unknown)") //TODO!
+    println(s"NUMBER OF UNIQUE POKÉMON CAUGHT: ${dbc.get_all_owned(player).count(_ => true)}")
     println("====================================")
   }
 
   /** run pokedex loop
     */
   private def pokedex_loop(): Unit = {
-    println("NOT YET IMPLEMENTED")
+    println(
+      "Welcome to the Pokédex. Here, you can learn a bit more about the Pokémon you've caught!"
+    )
+    println("Type `help` for a full list of commands")
+    var do_exit: Boolean = false
+
+    while (!do_exit) {
+      print("🔎 >> ")
+      var input = StdIn.readLine()
+      parse(input) match {
+        case Some(("help", "")) => {
+          println()
+          println("`help`: Show this help prompt")
+          println(
+            "`list`: List all Pokémon you own and how many you have caught"
+          )
+          println(
+            "`info [Pokémon name]`: List information about the Pokémon. You'll only get basic information if you haven't previously captured it."
+          )
+          println(
+            "`exit`: exit the Pokédex (also aliased as `leave` and `quit`)"
+          )
+        }
+        case Some(("list", "")) =>
+          println()
+          dbc.get_all_owned(player).foreach { case (pkmn, num_caught) =>
+            println(s"${pkmn.name}: ${num_caught}")
+          }
+        case Some(("info", pkmn_name)) =>
+          println()
+          dbc.get_one_owned(player, pkmn_name) match {
+            case Failure(exception) =>
+              println(s"Exception occurred: $exception")
+            case Success(None) =>
+              println(
+                s"""Pokémon "$pkmn_name" not found. Did you spell it right?"""
+              )
+            case Success(Some((pkmn, num_owned))) =>
+            // helper printing functions to clean up boilerplate code used in this section
+              def print_if_caught(
+                  category: String,
+                  caught_text: String
+              ): Unit = {
+                println(f"    ${category}%-20s: ${
+                  if (num_owned > 0) caught_text
+                  else "(Pokémon not yet caught)"
+                }")
+              }
+              def print_always(
+                  category: String,
+                  text: String
+              ): Unit = {
+                println(f"    ${category}%-20s: ${text}")
+              }
+              def string_of_two_options(opt1:Option[String], opt2:Option[String]):String = {
+                (opt1, opt2) match {
+                  case (Some(a1), None)     => a1
+                  case (None, Some(a2))     => a2
+                  case (Some(a1), Some(a2)) => a1 + "/" + a2
+                  case (None, None)         => "Unknown"
+                }
+              }
+
+              println(f"#${pkmn.pokedex_number}%03d ${pkmn.name}:")
+              print_always("Number caught", num_owned.toString())
+
+              println("  BASIC INFORMATION")
+              print_always("Generation", pkmn.generation.toString())
+              print_always("Type", string_of_two_options(pkmn.type_1, pkmn.type_2))
+              print_if_caught("Species", pkmn.species)
+
+              println("  PHYSICAL INFORMATION")
+              print_if_caught("Height", f"${pkmn.height_m}%.1f m")
+              print_if_caught("Weight", f"${pkmn.weight_kg}%.1f kg")
+              print_if_caught(
+                "Gender Ratio",
+                pkmn.percentage_male match {
+                  case None => "Genderless"
+                  case Some(value) =>
+                    f"${value}%% male/${100 - value}%% female"
+                }
+              )
+              print_if_caught(
+                "Egg Group",
+                string_of_two_options(pkmn.egg_type_1, pkmn.egg_type_2)
+              )
+
+              println("  GAME INFORMATION")
+              print_if_caught(
+                "Abilities",
+                string_of_two_options(pkmn.ability_1, pkmn.ability_2)
+              )
+              print_if_caught(
+                "Hidden Ability",
+                pkmn.ability_hidden.getOrElse("None")
+              )
+              print_if_caught(
+                "Catch Rate",
+                f"${pkmn.catch_rate.getOrElse("Unknown")}"
+              )
+              print_if_caught(
+                "Base Friendship",
+                f"${pkmn.base_friendship.getOrElse("Unknown")}"
+              )
+              print_if_caught(
+                "Base Experience",
+                f"${pkmn.base_experience.getOrElse("Unknown")}"
+              )
+              print_if_caught(
+                "Growth Rate",
+                f"${pkmn.base_experience.getOrElse("Unknown")}"
+              )
+
+              println("  BASE STATS")
+              print_if_caught("HP", s"${pkmn.hp}")
+              print_if_caught("Attack", s"${pkmn.attack}")
+              print_if_caught("Defense", s"${pkmn.defense}")
+              print_if_caught("Speed", s"${pkmn.speed}")
+              print_if_caught("Sp. Attack", s"${pkmn.sp_attack}")
+              print_if_caught("Sp. Defense", s"${pkmn.sp_defense}")
+          }
+        case Some(("exit", _)) | Some(("leave", _)) | Some(("quit", _)) => {
+          println(
+            "You put the Pokédex down and look back up at the Pokémon Safari Welcome Center."
+          )
+          do_exit = true
+        }
+        case Some((_, _)) | None =>
+          println("command not understood")
+      }
+      println()
+    }
   }
 
   /** Return a random Pokemon from the pokedex, weighted by their catch rate
