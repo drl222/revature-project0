@@ -10,7 +10,7 @@ class Cli(var dbc: DatabaseConnection) {
   var pokedex: Vector[Pokemon] = null
   var player: Player = null
 
-  /** The main function to run the CLI
+  /** Run the Cli
     */
   def run(): Unit = {
     println("Welcome to the Pokémon catching simulator!")
@@ -39,11 +39,109 @@ class Cli(var dbc: DatabaseConnection) {
 
       if (csv_load_successful) {
         println()
-        print("Please enter your name: ")
-        var input: String = StdIn.readLine().trim()
-        //TODO: if your name is already in the database, confirm link to old account
-        //and also maybe list out all existing players
+        main_menu_loop()
+      }
+    } finally {
+      dbc.disconnect()
+    }
+  }
 
+  private def main_menu_loop(): Unit = {
+    var do_exit: Boolean = false
+
+    while (!do_exit) {
+      println("MAIN MENU")
+      println("To start a new game, type `new`")
+      println("To continue a saved game, type `continue`")
+      println("To delete a saved game, type `delete`")
+      println("To exit, type `exit` (also aliased as `leave` or `quit`)")
+      print("🔵 >> ")
+      var input = StdIn.readLine()
+      parse(input) match {
+        case Some(("new", "")) =>
+          start_new_game()
+          if (player != null) {
+            welcome_center_loop()
+            do_exit = true
+          }
+        case Some(("continue", "")) =>
+          continue_game()
+          if (player != null) {
+            welcome_center_loop()
+            do_exit = true
+          }
+        case Some(("delete", "")) =>
+          delete_game()
+        case Some(("exit", "")) | Some(("leave", "")) | Some(("quit", "")) => {
+          println("Goodbye!")
+          do_exit = true
+        }
+        case Some((_, _)) | None =>
+          println("command not understood")
+      }
+      println()
+    }
+  }
+
+  private def start_new_game(): Unit = {
+    var do_exit: Boolean = false
+    while (!do_exit) {
+      print(
+        "Please enter your name (or \"exit\" to go back to the main menu): "
+      )
+      var input: String = StdIn.readLine().trim()
+      if (input == "exit" || input == "leave" || input == "quit") {
+        do_exit = true
+      } else {
+        dbc.get_player(input) match {
+          case Failure(exception) =>
+            println(s"Exception occurred! $exception")
+          case Success(Some(value)) =>
+            println()
+            println(
+              s"""A player with the name "$input" already exists. Choose a different name."""
+            )
+          case Success(None) =>
+            val temp_player: Player =
+              new Player(input, Player.num_balls_default)
+            if (dbc.add_player(temp_player)) {
+              player = temp_player
+              println()
+              println(s"Welcome to the Pokémon Safari, $input!")
+              println(s"Here you can go around and catch any Pokémon you see!")
+              println(
+                s"Let me get you ${Player.num_balls_default} Pokéballs to start."
+              )
+              println(
+                s"If you need any more at any point, check out the Pokémart."
+              )
+              println(s"Also, I've printed out a Trainer Card for you.")
+              println(s"It'll automatically keep track of your progress.")
+              println(s"Have a good time!")
+              println()
+              trainer_card()
+              println()
+              do_exit = true
+            }
+        }
+      }
+    }
+  }
+
+  private def continue_game(): Unit = {
+    var do_exit: Boolean = false
+    while (!do_exit) {
+      println()
+      println("LIST OF PLAYERS")
+      dbc.get_all_player_names().foreach(x => println(s"  $x"))
+
+      print(
+        "Please enter your name from the list above (or \"exit\" to go back to the main menu): "
+      )
+      var input: String = StdIn.readLine().trim()
+      if (input == "exit" || input == "leave" || input == "quit") {
+        do_exit = true
+      } else {
         dbc.get_player(input) match {
           case Failure(exception) =>
             println(s"Exception occurred! $exception")
@@ -55,36 +153,74 @@ class Cli(var dbc: DatabaseConnection) {
             println()
             trainer_card()
             println()
-            main_loop()
+            do_exit = true
           case Success(None) =>
-            player = new Player(input, Player.num_balls_default)
-            dbc.add_player(player)
             println()
-            println(s"Welcome to the Pokémon Safari, $input!")
-            println(s"Here you can go around and catch any Pokémon you see!")
             println(
-              s"Let me get you ${Player.num_balls_default} Pokéballs to start."
+              s"""No player with the name "$input" exists."""
             )
-            println(
-              s"If you need any more at any point, check out the Pokémart."
-            )
-            println(s"Also, I've printed out a Trainer Card for you.")
-            println(s"It'll automatically keep track of your progress.")
-            println(s"Have a good time!")
-            println()
-            trainer_card()
-            println()
-            main_loop()
         }
       }
-    } finally {
-      dbc.disconnect()
+    }
+  }
+
+  private def delete_game(): Unit = {
+    var do_exit: Boolean = false
+    while (!do_exit) {
+      println()
+      println("LIST OF PLAYERS")
+      dbc.get_all_player_names().foreach(x => println(s"  $x"))
+
+      println()
+      println("⚠️ WARNING ⚠️")
+      println("You are about to delete a save file.")
+      print(
+        "Type a name from the list above to delete, or type \"exit\" to go back to the main menu: "
+      )
+      var input: String = StdIn.readLine().trim()
+      if (input == "exit" || input == "leave" || input == "quit") {
+        do_exit = true
+      } else {
+        dbc.get_player(input) match {
+          case Failure(exception) =>
+            println(s"Exception occurred! $exception")
+          case Success(Some(value)) =>
+            println()
+            println(
+              s"You are about to delete all save data for the player $input."
+            )
+            println(s"⚠️ This cannot be undone! ⚠️")
+            print(
+              s"To continue, type the name again exactly. To cancel, type anything else: "
+            )
+            var new_input: String = StdIn.readLine().trim()
+            if (new_input == input) {
+              if (dbc.delete_player(input)) {
+                println("Save file has been successfully deleted.")
+              } else {
+                println(
+                  "Something has gone wrong while deleting the save file. Returning to main menu."
+                )
+              }
+              do_exit = true
+            } else {
+              println(
+                s"You have decided not to delete the save file for $input."
+              )
+            }
+          case Success(None) =>
+            println()
+            println(
+              s"""No player with the name "$input" exists."""
+            )
+        }
+      }
     }
   }
 
   /** main gameplay loop
     */
-  private def main_loop(): Unit = {
+  private def welcome_center_loop(): Unit = {
     var do_exit: Boolean = false
 
     while (!do_exit) {
@@ -138,7 +274,7 @@ class Cli(var dbc: DatabaseConnection) {
               ("pokémon", "")
             ) | Some(("pokemon", "")) | Some(("dex", "")) =>
           println(); pokedex_loop()
-        case Some(("exit", "")) |  Some(("leave", "")) |  Some(("quit", "")) => {
+        case Some(("exit", "")) | Some(("leave", "")) | Some(("quit", "")) => {
           println("Goodbye!")
           do_exit = true
         }
@@ -210,7 +346,9 @@ class Cli(var dbc: DatabaseConnection) {
             println(
               "`flee`: flee from this Pokémon and search for another Pokémon (also aliased as `ignore` and `pass`)"
             )
-            println("`exit`: leave this Safari Zone (also aliased as `leave` and `quit`)")
+            println(
+              "`exit`: leave this Safari Zone (also aliased as `leave` and `quit`)"
+            )
             println()
           }
           case Some(("catch", _)) | Some(("ball", _)) => {
@@ -232,7 +370,8 @@ class Cli(var dbc: DatabaseConnection) {
               predicate
             ).get
           }
-          case Some(("leave", _)) | Some(("exit", _))  | Some(("quit", _)) => {
+          case Some(("leave", "")) | Some(("exit", "")) |
+              Some(("quit", "")) => {
             println(
               s"You decide you've explored enough in the $safari_name Pokémon Safari. You head back to the Welcome Center."
             )
@@ -274,7 +413,9 @@ class Cli(var dbc: DatabaseConnection) {
     println("============TRAINER CARD============")
     println(s"TRAINER NAME: ${player.name}")
     println(s"NUMBER OF POKÉBALLS: ${player.num_balls}")
-    println(s"NUMBER OF UNIQUE POKÉMON CAUGHT: ${dbc.get_all_owned(player).count(_ => true)}")
+    println(
+      s"NUMBER OF UNIQUE POKÉMON CAUGHT: ${dbc.get_all_owned(player).count(_ => true)}"
+    )
     println("====================================")
   }
 
@@ -319,15 +460,13 @@ class Cli(var dbc: DatabaseConnection) {
                 s"""Pokémon "$pkmn_name" not found. Did you spell it right?"""
               )
             case Success(Some((pkmn, num_owned))) =>
-            // helper printing functions to clean up boilerplate code used in this section
+              // helper printing functions to clean up boilerplate code used in this section
               def print_if_caught(
                   category: String,
                   caught_text: String
               ): Unit = {
-                println(f"    ${category}%-20s: ${
-                  if (num_owned > 0) caught_text
-                  else "(Pokémon not yet caught)"
-                }")
+                println(f"    ${category}%-20s: ${if (num_owned > 0) caught_text
+                else "(Pokémon not yet caught)"}")
               }
               def print_always(
                   category: String,
@@ -335,7 +474,10 @@ class Cli(var dbc: DatabaseConnection) {
               ): Unit = {
                 println(f"    ${category}%-20s: ${text}")
               }
-              def string_of_two_options(opt1:Option[String], opt2:Option[String]):String = {
+              def string_of_two_options(
+                  opt1: Option[String],
+                  opt2: Option[String]
+              ): String = {
                 (opt1, opt2) match {
                   case (Some(a1), None)     => a1
                   case (None, Some(a2))     => a2
@@ -349,7 +491,10 @@ class Cli(var dbc: DatabaseConnection) {
 
               println("  BASIC INFORMATION")
               print_always("Generation", pkmn.generation.toString())
-              print_always("Type", string_of_two_options(pkmn.type_1, pkmn.type_2))
+              print_always(
+                "Type",
+                string_of_two_options(pkmn.type_1, pkmn.type_2)
+              )
               print_if_caught("Species", pkmn.species)
 
               println("  PHYSICAL INFORMATION")
@@ -402,7 +547,7 @@ class Cli(var dbc: DatabaseConnection) {
               print_if_caught("Sp. Attack", s"${pkmn.sp_attack}")
               print_if_caught("Sp. Defense", s"${pkmn.sp_defense}")
           }
-        case Some(("exit", _)) | Some(("leave", _)) | Some(("quit", _)) => {
+        case Some(("exit", "")) | Some(("leave", "")) | Some(("quit", "")) => {
           println(
             "You put the Pokédex down and look back up at the Pokémon Safari Welcome Center."
           )

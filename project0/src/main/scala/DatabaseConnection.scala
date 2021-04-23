@@ -77,7 +77,7 @@ class DatabaseConnection(val connection_URL: String) {
   def load_pokedex(): Try[Vector[Pokemon]] = {
     if (!is_connected) throw new SQLException("Connection not open")
     val stmt = conn.prepareStatement(
-      s"SELECT * FROM ${DatabaseConnection.TABLE_POKEMON};"
+      s"SELECT * FROM ${DatabaseConnection.TABLE_POKEMON} ORDER BY ${Pokemon.POKEMON_ID} DESC;"
     )
     Try {
       val rs = stmt.executeQuery()
@@ -94,6 +94,7 @@ class DatabaseConnection(val connection_URL: String) {
     * @param pokedex
     */
   def store_pokedex(pokedex: Vector[Pokemon]): Boolean = {
+    if (!is_connected) throw new SQLException("Connection not open")
     conn.setAutoCommit(false);
     try {
       val stmt = conn.prepareStatement(
@@ -187,6 +188,24 @@ class DatabaseConnection(val connection_URL: String) {
     }
   }
 
+  def get_all_player_names(): Vector[String] = {
+    if (!is_connected) throw new SQLException("Connection not open")
+    val stmt = conn.prepareStatement(
+      s"SELECT ${Player.NAME} FROM ${DatabaseConnection.TABLE_PLAYER} ORDER BY ${Player.NAME} DESC;"
+    )
+    try {
+      val rs: ResultSet = stmt.executeQuery()
+      var to_return = Vector[String]()
+      while (rs.next()) {
+        to_return = rs.getString(Player.NAME) +: to_return
+      }
+      to_return
+    } catch {
+      case e: SQLException =>
+        println(s"Exception occurred! $e"); Vector[String]()
+    }
+  }
+
   def add_player(player: Player): Boolean = {
     if (!is_connected) throw new SQLException("Connection not open")
     val stmt = conn.prepareStatement(
@@ -199,6 +218,31 @@ class DatabaseConnection(val connection_URL: String) {
       true
     } catch {
       case e: SQLException =>
+        println(s"Exception occurred! $e")
+        false
+    }
+  }
+
+  def delete_player(player_name: String): Boolean = {
+    if (!is_connected) throw new SQLException("Connection not open")
+    conn.setAutoCommit(false);
+    // delete both
+    val stmt1 = conn.prepareStatement(
+      s"DELETE FROM ${DatabaseConnection.TABLE_OWNERSHIP} WHERE ${DatabaseConnection.OWNERSHIP_PLAYER_ID} = ?;"
+    )
+    val stmt2 = conn.prepareStatement(
+      s"DELETE FROM ${DatabaseConnection.TABLE_PLAYER} WHERE ${Player.NAME} = ?;"
+    )
+    try {
+      stmt1.setString(1, player_name)
+      stmt2.setString(1, player_name)
+      stmt1.executeUpdate()
+      stmt2.executeUpdate()
+      conn.commit()
+      true
+    } catch {
+      case e: SQLException =>
+        conn.rollback()
         println(s"Exception occurred! $e")
         false
     }
@@ -260,7 +304,10 @@ class DatabaseConnection(val connection_URL: String) {
     }
   }
 
-  def get_one_owned(player: Player, pkmn_name: String): Try[Option[(Pokemon, Int)]] = {
+  def get_one_owned(
+      player: Player,
+      pkmn_name: String
+  ): Try[Option[(Pokemon, Int)]] = {
     if (!is_connected) throw new SQLException("Connection not open")
     val stmt = conn.prepareStatement(
       s"SELECT ${DatabaseConnection.TABLE_POKEMON}.*, COALESCE(${DatabaseConnection.TABLE_OWNERSHIP}.${DatabaseConnection.OWNERSHIP_NUMBER_OWNED}, 0) AS ${DatabaseConnection.OWNERSHIP_NUMBER_OWNED} " +
@@ -275,7 +322,9 @@ class DatabaseConnection(val connection_URL: String) {
     Try {
       val rs: ResultSet = stmt.executeQuery()
       if (rs.next()) {
-        Some((Pokemon(rs), rs.getInt(DatabaseConnection.OWNERSHIP_NUMBER_OWNED)))
+        Some(
+          (Pokemon(rs), rs.getInt(DatabaseConnection.OWNERSHIP_NUMBER_OWNED))
+        )
       } else {
         None
       }
